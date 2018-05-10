@@ -828,7 +828,7 @@ class Main extends Phaser.State {
     }
 
     openConnection() {
-        this.ws = new WebSocket("ws://localhost:9977") //ws:dollarone.games:9977")   //"ws://localhost:9977") // "ws://dollarone.games:9988")
+        this.ws = new WebSocket("ws:dollarone.games:9977")   //"ws://localhost:9977") // "ws://dollarone.games:9988")
         this.connected = false
         this.ws.onmessage = this.onMessage.bind(this)
         this.ws.onerror = this.displayError.bind(this)
