@@ -2,7 +2,7 @@ class Main extends Phaser.State {
 
     init(gameType = "local", level = 0) {
         this.playerName = "Player"
-        this.gameType = gameType
+        this.gameType = "online"//gameType//
         this.level = level
     }
 
@@ -11,8 +11,10 @@ class Main extends Phaser.State {
 		this.game.stage.backgroundColor = '#8da8f1'//'#5fcde4'//'#98FB98'
         this.sprite = this.game.add.sprite(0, 70, 'castle')
 
-        this.yourHealth = 20
-        this.enemyHealth = 20
+        this.yourHealth = 10
+        this.enemyHealth = 10
+        this.winnerDecided = false
+
         this.leftLaneQueue = []
         this.centralLaneQueue = []
         this.rightLaneQueue = []
@@ -20,18 +22,29 @@ class Main extends Phaser.State {
         this.enemyCentralLaneQueue = []
         this.enemyRightLaneQueue = []
 
+        this.combatResolved = false
+        this.processedUnits = 0
+        this.processedEnemyUnits = 0
+
+        this.rectsOn = true
 		this.step = -1
 
         this.smokes = 2
+        this.laneToBeDeployed = -1 
+        this.enemySmokeUsed = false
 
 		this.statusLabel = this.add.text(this.game.world.width/2 - 360, 10, '')
 		this.timeLabel = this.add.text(700, 10, '')
 		this.speed = 0
 
-        this.gameover = false
+        this.enterKey = this.game.input.keyboard.addKey(Phaser.Keyboard.ENTER)
+        this.enterKey.onDown.add(this.skip, this)
 
         this.rKey = this.game.input.keyboard.addKey(Phaser.Keyboard.R)
     	this.rKey.onDown.add(this.restart, this)
+
+        this.mKey = this.game.input.keyboard.addKey(Phaser.Keyboard.M)
+        this.mKey.onDown.add(this.switchRedRects, this)
 
         this.openConnection()
         this.myText = this.game.add.text(332, 32, "started (not yet connected)", { font: "14px Arial", fill: "#ff0044"})
@@ -40,6 +53,7 @@ class Main extends Phaser.State {
         this.myText.visible = false
         
         this.game.input.mouse.capture = true
+        this.game.input.onTap.add(this.skip, this)
 /*
         this.resignButton = this.game.add.button(5, 40, 'buttons', this.resign, this)//, null, null, 0, 1)
         this.resignButton.frame = 10
@@ -63,6 +77,7 @@ class Main extends Phaser.State {
         this.players[1] = "Player 2"
 
         this.myTurn = false
+        this.canDeploy = true
 
         this.firstTurn = true
 
@@ -85,8 +100,6 @@ class Main extends Phaser.State {
         this.enemyHPLabel = this.game.add.text(317, 20, "Opponent's HP:", { font: "14px Arial", fill: "#000000"})
         this.enemyHPField = this.game.add.text(420, 23, this.enemyHP, { font: "11px Monospace", fill: "#000000"})
 
-
-
         if (this.gameType == "local") {
             this.nameLabel.visible = false
             this.opponentTextLabel.visible = false
@@ -99,26 +112,34 @@ class Main extends Phaser.State {
         this.leftLaneBorder = this.game.add.graphics(0, 0)
         this.leftLaneBorder.lineStyle(2, 0xf23c39, 2)
         this.leftLaneBorder.drawRect(1, 330, 210, 169)
-        let tween1 = this.game.add.tween(this.leftLaneBorder).to( { alpha: 0 }, 1000, Phaser.Easing.Linear.None, true, 0, -1)
-        tween1.yoyo(true, 0)
+        this.leftLaneBorderTween = this.game.add.tween(this.leftLaneBorder).to( { alpha: 0 }, 1000, Phaser.Easing.Linear.None, true, 0, -1)
+        this.leftLaneBorderTween.yoyo(true, 0)
 
         this.centralLaneBorder = this.game.add.graphics(0, 0)
         this.centralLaneBorder.lineStyle(2, 0xff3c39, 2)
         this.centralLaneBorder.drawRect(250, 330, 240, 169)
-        let tween2 = this.game.add.tween(this.centralLaneBorder).to( { alpha: 0 }, 1000, Phaser.Easing.Linear.None, true, 0, -1)
-        tween2.yoyo(true, 0)
+        this.centralLaneBorderTween = this.game.add.tween(this.centralLaneBorder).to( { alpha: 0 }, 1000, Phaser.Easing.Linear.None, true, 0, -1)
+        this.centralLaneBorderTween.yoyo(true, 0)
 
         this.rightLaneBorder = this.game.add.graphics(0, 0)
         this.rightLaneBorder.lineStyle(2, 0xf23c39, 2)
         this.rightLaneBorder.drawRect(515, 330, 184, 169)
-        let tween3 = this.game.add.tween(this.rightLaneBorder).to( { alpha: 0 }, 1000, Phaser.Easing.Linear.None, true, 0, -1)
-        tween3.yoyo(true, 0)
+        this.rightLaneBorderTween = this.game.add.tween(this.rightLaneBorder).to( { alpha: 0 }, 1000, Phaser.Easing.Linear.None, true, 0, -1)
+        this.rightLaneBorderTween.yoyo(true, 0)
 
-        this.peasant = this.createUnit('peasant', '1/1', 589, 32)
-        this.swordsman = this.createUnit('swordsman', '2/2', 632, 32)
-        this.knight = this.createUnit('knight', '3/3', 675, 32)
-        this.shieldman = this.createUnit('shieldman', '1/2', 632, 144)
-        this.pikeman = this.createUnit('pikeman', '3/1', 675, 144)
+        this.peasant = this.createUnit('peasant', '1','1', 150, 625)
+        this.swordsman = this.createUnit('swordsman', '2','2', 250, 625)
+        this.knight = this.createUnit('knight', '3','3', 350, 625)
+        this.shieldman = this.createUnit('shieldman', '1','2', 450, 625)
+        this.pikeman = this.createUnit('pikeman', '3','1', 550, 625)
+
+        this.enemySmoke1 = this.createUnit('enemyCloud', '?','?', -265, 150, true)
+        this.enemySmoke2 = this.createUnit('enemyCloud', '?','?', -265, 150, true)
+        this.enemyPeasant = this.createUnit('enemyPeasant', '1','1', -265, -150, true)
+        this.enemySwordsman = this.createUnit('enemySwordsman', '2','2', -265, -150, true)
+        this.enemyKnight = this.createUnit('enemyKnight', '3','3', -265, -150, true)
+        this.enemyShieldman = this.createUnit('enemyShieldman', '1','2', -265, -150, true)
+        this.enemyPikeman = this.createUnit('enemyPikeman', '3','1', -265, -150, true)
 
         this.selectionOverlay = this.game.add.graphics(220, 205)
         this.selectionOverlay.beginFill(0x545454)
@@ -132,43 +153,121 @@ class Main extends Phaser.State {
         //this.selectionLabel.smoothed = true
         this.selectionLabel.anchor.setTo(0.5)
         this.selectionOverlay.addChild(this.selectionLabel)
-
         this.selectionOverlay.visible = false
 
+        this.gameoverOverlay = this.game.add.graphics(100, 205)
+        this.gameoverOverlay.beginFill(0x545454)
+        this.gameoverOverlay.lineStyle(2, 0x444444, 2)
+        this.gameoverOverlay.lineTo(480, 0)
+        this.gameoverOverlay.lineTo(480, 320)
+        this.gameoverOverlay.lineTo(0, 320)
+        this.gameoverOverlay.lineTo(0, 0)
+        this.gameoverOverlay.endFill()
+        this.winorlose = "You lose..."
+        this.gameoverLabel = this.game.add.text(239, 240, this.winorlose, { font: "15px Arial", fill: "#000000"})
+        //this.selectionLabel.smoothed = true
+        this.gameoverLabel.anchor.setTo(0.5)
+        this.gameoverSprite = this.game.add.sprite(80, 60, 'gameoverScreen')
+        this.gameoverSprite.frame = 1
+        this.rematchButton = this.createButton(165, 280, this.rematch, 14, 15)
+        this.endgameButton = this.createButton(315, 280, this.endgame, 16, 17)
+        this.gameoverOverlay.addChild(this.rematchButton)
+        this.gameoverOverlay.addChild(this.endgameButton)
+        this.gameoverOverlay.addChild(this.gameoverLabel)
+        this.gameoverOverlay.addChild(this.gameoverSprite)
 
-        this.yesButton = this.game.add.button(100, 100, 'buttons', this.deployWithSmoke, this)//, null, null, 0, 1)
-        this.yesButton.anchor.setTo(0.5)
-        this.yesButton.frame = 2
-        this.yesButton._onUpFrame = 2
-        this.yesButton._onDownFrame = 3
-        this.yesButton.input.useHandCursor = true
-        this.selectionOverlay.addChild(this.yesButton)
+        this.gameoverOverlay.visible = false
 
-        this.noButton = this.game.add.button(175, 100, 'buttons', this.deployWithoutSmoke, this)//, null, null, 0, 1)
-        this.noButton.anchor.setTo(0.5)
-        this.noButton.frame = 4
-        this.noButton._onUpFrame = 4
-        this.noButton._onDownFrame = 5
-        this.noButton.input.useHandCursor = true
-        this.selectionOverlay.addChild(this.noButton)
 
+        this.yesButton = this.createButton(100, 100, this.deployWithSmoke, 2, 3, this.selectionOverlay)
+        this.noButton = this.createButton(175, 100, this.deployWithoutSmoke, 4, 5, this.selectionOverlay)
+        this.continueButton = this.createButton(175, 100, this.continue, 12, 13)
+        this.continueButton.visible = false
+        
+        //this.rematchButton.visible = false
 
 //        this.selectionOverlay.visible = false
 
         this.modal = false
         
+        this.winMusic = this.game.add.audio('m_win')
+        this.loseMusic = this.game.add.audio('m_lose')
 
         this.gameMusic = this.game.add.audio('gameplay')
         this.gameMusic.loopFull() 
+
+        this.stepDelay = 200
+        this.displayState = 1//"waitForNextResolve"
+        this.nextStateChange = 0
+
+        // 
+        this.addedSlashes = false
+        this.currentLane = 0
+        this.switchRedRects(false)
 	}
 
-    createUnit(type, stats, x, y, enemy=false) {
+    addSlashes() {
+        this.slashes = []
+        let slash = this.game.add.sprite(200,200,'cut')
+        slash.anchor.setTo(0.5)
+        slash.visible = false
+        this.slashes.push(slash)
+
+        
+        slash = this.game.add.sprite(200,200,'cut')
+        slash.anchor.setTo(0.5)
+        slash.visible = false
+        this.slashes.push(slash)
+
+        slash = this.game.add.sprite(200,200,'cut')
+        slash.anchor.setTo(0.5)
+        slash.visible = false
+        this.slashes.push(slash)
+        
+        slash = this.game.add.sprite(300,200,'cut')
+        slash.anchor.setTo(0.5)
+        slash.visible = false
+        this.slashes.push(slash)
+
+        slash = this.game.add.sprite(300,200,'cut')
+        slash.anchor.setTo(0.5)
+        slash.visible = false
+        this.slashes.push(slash)
+
+        slash = this.game.add.sprite(300,200,'cut')
+        slash.anchor.setTo(0.5)
+        slash.visible = false
+        this.slashes.push(slash)
+        
+        this.slashes[1].angle -= 45
+        this.slashes[2].angle += 45
+        this.slashes[4].angle -= 45
+        this.slashes[5].angle += 45
+
+
+    }
+
+    createButton(x,y, clickFunction, frame1, frame2, parent=null) {
+        let b = this.game.add.button(x, y, 'buttons', clickFunction, this)//, null, null, 0, 1)
+        b.anchor.setTo(0.5)
+        b.frame = frame1
+        b._onUpFrame = frame1
+        b._onDownFrame = frame2
+        b.input.useHandCursor = true
+        if (parent != null) {
+            parent.addChild(b)
+        }
+        return b
+    }
+    createUnit(type, attack, health, x, y, enemy=false) {
         let unit = this.game.add.sprite(x, y, type)
         unit.anchor.setTo(0.5)
         unit.orgX = x
         unit.orgY = y
         unit.orgType = type
-        let unitLabel = this.game.add.text(2, 60, stats, { font: "14px Arial", fill: "#fff"})
+        unit.attack = attack
+        unit.health = health
+        let unitLabel = this.game.add.text(2, 60, attack + "/" + health, { font: "14px Arial", fill: "#fff"})
         unitLabel.anchor.setTo(0.5)
         if (enemy) {
             unitLabel.y-=18
@@ -187,8 +286,9 @@ class Main extends Phaser.State {
     onDragStop(sprite, pointer) {
 
     //    result = sprite.key + " dropped at x:" + pointer.x + " y: " + pointer.y;
+    console.log("this.canDeploy: " + this.canDeploy + " this.myTurn: " + this.myTurn + " this.modal: " + this.modal)
 
-        if(this.myTurn && !this.modal && pointer.y>330) {
+        if(this.canDeploy && this.myTurn && !this.modal && pointer.y>330 && pointer.y<330+169) {
             if(pointer.x < 210) {
                 this.chooseLane(0,sprite)
             }
@@ -286,20 +386,22 @@ class Main extends Phaser.State {
     deploy(smoke) {
         this.selectionOverlay.visible = false
         this.modal = false
+
         if (true || (this.connected && this.myTurn && !this.gameOver)) {
-            this.ws.send(JSON.stringify({action: "deploy", unit: this.unitToBeDeployed.key, lane: this.laneToBeDeployed, smoke: smoke}))
+            this.ws.send(JSON.stringify({action: "deploy", unit: this.unitToBeDeployed.key, lane: this.laneToBeDeployed, smoke: smoke, nick:this.nameInput.value}))
         }
         this.myTurn = false
+        this.canDeploy = false
+        this.switchRedRects(false)
         if  (smoke) {
             this.unitToBeDeployed.loadTexture('cloud', 0)
             this.smokes-=1
             this.selectionLabel.text = "Do you want to deploy this unit\nunder a smoke screen?\n(" + this.smokes + " smoke screen left)"
         }
-    
     }
 
     addEnemy(lane, unit) {
-
+        this.canDeploy = true
         let startX = 255
         let startY = 158
         switch(lane) {
@@ -361,14 +463,22 @@ class Main extends Phaser.State {
     resign() {
         this.ws.send(JSON.stringify({action: "resign", nick:this.nameInput.value}))
     }
-
+    continue() {
+        this.ws.send(JSON.stringify({action: "continue", nick:this.nameInput.value}))
+        console.log("continue")
+    }
+    rematch() {
+        this.ws.send(JSON.stringify({action: "rematch", nick:this.nameInput.value}))
+    }
+    endgame() {
+        this.ws.send(JSON.stringify({action: "endgame", nick:this.nameInput.value}))
+        this.gameover = true
+        this.gameMusic.stop()
+        this.game.state.start("MainMenu")
+    }
 	restart() {
         this.gameMusic.stop()
 		this.game.state.start("MainMenu")
-	}
-
-	endgame() {
-		this.gameover = true
 	}
 	update() {
 		this.step += 1
@@ -376,10 +486,273 @@ class Main extends Phaser.State {
             this.nextTurnCooldown -= 1
         }
 
-        //if (this.game.input.mousePointer.isDown) {
-        //}
+        if (this.combatResolved && !this.winnerDecided) {
+            console.log("yeah" + this.currentLane)
+            if (this.processedUnits + this.processedEnemyUnits == 10) {
+                //this.continueButton.visible = true
+            }
+            else {
+                if (this.step == this.nextStateChange) {
+                    this.cleanUp()
+                    console.log("lane: " + this.currentLane)
+                    switch (this.currentLane) {
+                    
+                    case 0: this.resolveNext(0, this.leftLaneQueue, this.enemyLeftLaneQueue)
+                        break
+                    case 1: this.resolveNext(1, this.centralLaneQueue, this.enemyCentralLaneQueue)
+                        break
+                    case 2: if(!this.resolveNext(2, this.rightLaneQueue, this.enemyRightLaneQueue)) {
+                            this.canContinue = true
+                            this.continueButton.visible = true
+                        }
+                        break
+                    
+                    default:
+                    }
+                }
+            }
+            if (this.yourHealth<1) {
+                console.log("You lose")
+                this.winnerDecided = true
+                this.gameMusic.stop()
+                this.loseMusic.play() 
+                this.winorlose = "You lose..."
+                this.gameoverLabel.text = this.winorlose
+                this.gameoverSprite.frame = 1
+                this.gameoverOverlay.visible = true
+                this.rematchButton.visible = true
+
+            }
+            else if(this.enemyHealth<1) {
+                console.log("You win")
+                this.winnerDecided = true
+                this.gameMusic.stop()
+                this.winMusic.play() 
+                this.gameoverOverlay.visible = true
+                this.winorlose = "You win!"
+                this.gameoverLabel.text = this.winorlose
+                this.gameoverSprite.frame = 0
+                this.rematchButton.visible = true
+            }
+
+        }
+        if (this.winnerDecided) {
+            if (this.yourHealth<1) {
+            }
+            else if(this.enemyHealth<1) {
+            }
+            else { // wtf
+
+            }
+        }
         //this.statusLabel.text = "Pointer is at " + this.game.input.x + "/" + this.game.input.y
 	}
+
+    skip() {
+        this.nextStateChange = this.step + 1
+
+    }
+
+    cleanUp() {
+        for (let i=0; i<6; i++) {
+            this.slashes[i].visible = false
+        }
+        for (let i=0; i < this.leftLaneQueue.length; i++) {
+            if (this.leftLaneQueue[i].health < 1) {
+                this.leftLaneQueue[i].visible = false
+            }
+        }
+        for (let i=0; i < this.enemyLeftLaneQueue.length; i++) {
+            if (this.enemyLeftLaneQueue[i].health < 1) {
+                this.enemyLeftLaneQueue[i].visible = false
+            }
+        }
+        for (let i=0; i < this.centralLaneQueue.length; i++) {
+            if (this.centralLaneQueue[i].health < 1) {
+                this.centralLaneQueue[i].visible = false
+            }
+        }
+        for (let i=0; i < this.enemyCentralLaneQueue.length; i++) {
+            if (this.enemyCentralLaneQueue[i].health < 1) {
+                this.enemyCentralLaneQueue[i].visible = false
+            }
+        }
+        for (let i=0; i < this.rightLaneQueue.length; i++) {
+            if (this.rightLaneQueue[i].health < 1) {
+                this.rightLaneQueue[i].visible = false
+            }
+        }
+        for (let i=0; i < this.enemyRightLaneQueue.length; i++) {
+            if (this.enemyRightLaneQueue[i].health < 1) {
+                this.enemyRightLaneQueue[i].visible = false
+            }
+        }
+    }
+
+    resolveNext(lane, myQueue, enemyQueue) {
+        if (enemyQueue.length == this.processedEnemyUnits && myQueue.length == this.processedUnits) {
+            this.processedUnits = 0
+            this.processedEnemyUnits = 0
+            this.currentLane+=1
+            console.log("new lane")
+            this.nextStateChange = this.step + this.stepDelay
+            return false
+        }
+        else if (enemyQueue.length == this.processedEnemyUnits) {
+            let yourUnit = myQueue[this.processedUnits]
+            if (this.displayState == 1) {
+                let targetX = 275 
+                let targetY = 140
+                if (lane==1) {
+                    targetX = 350 
+                }
+                else if (lane==2) {
+                    targetX = 445 
+                }
+                
+                let tween3 = this.game.add.tween(yourUnit)
+                tween3.to({x:targetX}, 500, Phaser.Easing.Linear.None)
+                let tween4 = this.game.add.tween(yourUnit)
+                tween4.to({y:targetY}, 500, Phaser.Easing.Linear.None)
+                tween3.start()
+                tween4.start()
+                this.displayState = 2
+                this.nextStateChange = this.step + this.stepDelay
+                return true
+            }
+            else {
+                this.displayState = 1
+                
+                for (let i=0; i<yourUnit.attack; i++) {
+                    this.slashes[i].bringToTop = true
+                    this.slashes[i].x = this.enemyHPField.x+5
+                    this.slashes[i].y = this.enemyHPField.y+5
+                    this.slashes[i].visible = true
+                }
+
+                this.nextStateChange = this.step + this.stepDelay
+                this.enemyHealth = this.enemyHealth - yourUnit.attack
+                this.enemyHPField.text = this.enemyHealth
+
+                this.processedUnits += 1
+                yourUnit.visible = false
+                
+                return true
+
+            }
+
+        }
+        else if (myQueue.length == this.processedUnits) {
+            let enemyUnit = enemyQueue[this.processedEnemyUnits]
+            if (this.displayState == 1) {
+                let targetX = 80
+                let targetY = 520
+                if (lane==1) {
+                    targetX = 350 
+                }
+                else if (lane==2) {
+                    targetX = 620 
+                }
+                
+                let tween3 = this.game.add.tween(enemyUnit)
+                tween3.to({x:targetX+15}, 500, Phaser.Easing.Linear.None)
+                let tween4 = this.game.add.tween(enemyUnit)
+                tween4.to({y:targetY}, 500, Phaser.Easing.Linear.None)
+                tween3.start()
+                tween4.start()
+                this.displayState = 2
+                this.nextStateChange = this.step + this.stepDelay
+                return true
+            }
+            else {
+                this.displayState = 1
+                
+                for (let i=0; i<enemyUnit.attack; i++) {
+                    this.slashes[i].bringToTop = true
+                    this.slashes[i].x = this.yourHPField.x
+                    this.slashes[i].y = this.yourHPField.y+5
+                    this.slashes[i].visible = true
+                }
+
+                this.nextStateChange = this.step + this.stepDelay
+                this.yourHealth = this.yourHealth - enemyUnit.attack
+                this.yourHPField.text = this.yourHealth
+
+                this.processedEnemyUnits += 1
+                enemyUnit.visible = false
+                enemyUnit.x = -200
+
+                return true
+
+            }
+        }
+        else {
+            let yourUnit = myQueue[this.processedUnits]
+            let enemyUnit = enemyQueue[this.processedEnemyUnits]
+
+            console.log("yourUnit: " + yourUnit.attack + "/" + yourUnit.health + "(" + this.processedUnits + ")")
+            console.log("enemyUnit: " + enemyUnit.attack + "/" + enemyUnit.health + "(" + this.processedEnemyUnits + ")")
+
+            if (this.displayState == 1) {
+                let targetX = (yourUnit.x + enemyUnit.x) / 2 +5
+                let targetY = (yourUnit.y + enemyUnit.y) / 2
+                
+                let tween = this.game.add.tween(yourUnit)
+                tween.to({x:targetX-15}, 500, Phaser.Easing.Linear.None)
+                let tween2 = this.game.add.tween(yourUnit)
+                tween2.to({y:targetY-10}, 500, Phaser.Easing.Linear.None)
+                tween.start()
+                tween2.start()
+
+                let tween3 = this.game.add.tween(enemyUnit)
+                tween3.to({x:targetX+15}, 500, Phaser.Easing.Linear.None)
+                let tween4 = this.game.add.tween(enemyUnit)
+                tween4.to({y:targetY}, 500, Phaser.Easing.Linear.None)
+                tween3.start()
+                tween4.start()
+                this.displayState = 2
+                this.nextStateChange = this.step + this.stepDelay
+                return true
+            }
+            else {
+                this.displayState = 1
+                console.log("myUNIT " + yourUnit.attack + "/" + yourUnit.health + yourUnit.unit)
+                console.log("enemyUNIT " + enemyUnit.unit)
+                for (let i=0; i<enemyUnit.attack; i++) {
+                    this.slashes[i].bringToTop = true
+                    this.slashes[i].x = yourUnit.x
+                    this.slashes[i].y = yourUnit.y
+                    this.slashes[i].visible = true
+                }
+
+                for (let i=0; i<yourUnit.attack; i++) {
+                    this.slashes[3+i].bringToTop = true
+                    this.slashes[3+i].x = enemyUnit.x
+                    this.slashes[3+i].y = enemyUnit.y
+                    this.slashes[3+i].visible = true
+                }
+                this.nextStateChange = this.step + this.stepDelay
+                yourUnit.health -= enemyUnit.attack
+                enemyUnit.health -= yourUnit.attack
+
+                yourUnit.getChildAt(0).text = yourUnit.attack + "/" + yourUnit.health
+                enemyUnit.getChildAt(0).text = enemyUnit.attack + "/" + enemyUnit.health
+
+                if (yourUnit.health < 1) {
+                    yourUnit.getChildAt(0).text = yourUnit.attack + "/" + '💀'
+                    this.processedUnits += 1
+                    //yourUnit.visible = false
+                }
+                if (enemyUnit.health < 1) {
+                    enemyUnit.getChildAt(0).text = enemyUnit.attack + "/" + '💀'
+                    this.processedEnemyUnits += 1
+                    //enemyUnit.visible = false
+                }
+                return true
+            }
+        }
+        return true
+    }
 
     yourTurn() {
         this.myTurn = true
@@ -388,6 +761,7 @@ class Main extends Phaser.State {
         tween.to({alpha:1}, 1000, Phaser.Easing.Linear.None);
         tween.onComplete.add(this.fadeOutSlowly, this)
         tween.start()
+        this.switchRedRects(true)
 
     }
 
@@ -408,15 +782,53 @@ class Main extends Phaser.State {
 
     }
 
-    announceWin(pl) {
-        this.result = this.players[pl] + " has won!"
-        this.gameover = true
-        this.game.add.text(200, 400, this.result, { font: "24px Arial", fill: "#ff0044"})
+    addSmoke() {
+        if (this.enemySmokeUsed) {
+            this.addEnemy(this.laneToBeDeployed, this.enemySmoke2)
+        }
+        else {
+            this.addEnemy(this.laneToBeDeployed, this.enemySmoke1)
+            this.enemySmokeUsed = true
+        }
+    }
+    addPeasant() {
+        this.addEnemy(this.laneToBeDeployed, this.enemyPeasant)
+    }
+    addSwordsman() {
+        this.addEnemy(this.laneToBeDeployed, this.enemySwordsman)
+    }
+    addKnight() {
+        this.addEnemy(this.laneToBeDeployed, this.enemyKnight)
+    }
+    addShieldman() {
+         this.addEnemy(this.laneToBeDeployed, this.enemyShieldman)
+    }
+    addPikeman() {
+        this.addEnemy(this.laneToBeDeployed, this.enemyPikeman)
+    }
+    switchRedRects(on) {
 
+        if(!on) {
+            this.leftLaneBorderTween.pause()
+            this.leftLaneBorder.alpha = 0
+            this.centralLaneBorderTween.pause()
+            this.centralLaneBorder.alpha = 0
+            this.rightLaneBorderTween.pause()
+            this.rightLaneBorder.alpha = 0
+        }
+        else {
+            this.leftLaneBorderTween.resume()
+            this.leftLaneBorder.alpha = 1
+            this.centralLaneBorderTween.resume()
+            this.centralLaneBorder.alpha = 1
+            this.rightLaneBorderTween.resume()
+            this.rightLaneBorder.alpha = 1            
+        }
+        this.rectsOn = !this.rectsOn
     }
 
     openConnection() {
-        this.ws = new WebSocket("ws:dollarone.games:9977")   //"ws://localhost:9977") // "ws://dollarone.games:9988")
+        this.ws = new WebSocket("ws://localhost:9977") //ws:dollarone.games:9977")   //"ws://localhost:9977") // "ws://dollarone.games:9988")
         this.connected = false
         this.ws.onmessage = this.onMessage.bind(this)
         this.ws.onerror = this.displayError.bind(this)
@@ -433,6 +845,8 @@ class Main extends Phaser.State {
     onMessage(message) {
 
         this.queuedAction = ""
+
+        let rematchStarted = false
         
         var msg = JSON.parse(message.data);
          console.log(msg);
@@ -445,6 +859,18 @@ class Main extends Phaser.State {
             this.turnNumber.text = this.turn
             this.currentPlayerNumber = msg.currentPlayer
 
+
+            if (this.playerNumber == 0) {
+                //this.nameInput.setText(msg.players[0]["nick"])
+                this.opponentTextLabel.text = msg.players[1]["nick"]
+
+            }
+            else {
+                this.opponentTextLabel.text = msg.players[0]["nick"]
+                //this.nameInput.setText(msg.players[1]["nick"])
+            }
+
+
             if (this.currentPlayerNumber == this.playerNumber) {
                 this.yourTurn()
                 this.game.currentPlayer = this.players[this.playerNumber]
@@ -455,11 +881,9 @@ class Main extends Phaser.State {
             }
             else {
                 this.currentPlayerLabel.text = this.opponentTextLabel.text + "'s turn"
+                this.switchRedRects(false)
             }
-            
 
-
-            console.log(" current player " + this.currentPlayerNumber + " robots: " + JSON.stringify(msg.robots))
         }
         else if (undefined != msg.status && msg.status == "registered") {
             this.ws.send(JSON.stringify({action: "findGame", gameType: this.gameType, level: this.level}))
@@ -469,7 +893,16 @@ class Main extends Phaser.State {
         	
             this.currentPlayerNumber = msg.currentPlayer
             this.playerNumber = msg.playerNumber
+            this.yourHP = 10
+            this.enemyHP = 10
+            this.yourHPField.text = this.yourHP
+            this.enemyHPField.text = this.enemyHP
 
+            if (msg.rematchStarted==true) {
+                console.log("rematch triggered")
+                rematchStarted = true
+                this.gameoverOverlay.visible = false
+            }
 
             console.log(this.currentPlayer + " and I am " + this.playerNumber)
 
@@ -501,6 +934,79 @@ class Main extends Phaser.State {
             this.waitingForGameLabel.text = ""
 
         }
+        if (rematchStarted || (undefined != msg.status && msg.status == "newRoundStarted")) {
+            console.log("newround - rematch? " + rematchStarted)
+            this.enemyPeasant.x = -200
+            this.enemySwordsman.x = -200
+            this.enemyKnight.x = -200
+            this.enemyShieldman.x = -200
+            this.enemyPikeman.x = -200
+            this.enemySmoke1.x = -200
+            this.enemySmoke2.x = -200
+            this.continueButton.visible = false
+            this.enemySmokeUsed = false
+            this.peasant.x = 150
+            this.peasant.y = 625
+            this.peasant.health = 1
+            this.peasant.visible = true
+            this.peasant.inputEnabled = true
+            this.peasant.getChildAt(0).text = this.peasant.attack + "/" + this.peasant.health
+            this.swordsman.x = 250
+            this.swordsman.y = 625
+            this.swordsman.health = 2
+            this.swordsman.visible = true
+            this.swordsman.inputEnabled = true
+            this.swordsman.getChildAt(0).text = this.swordsman.attack + "/" + this.swordsman.health
+            this.knight.x = 350
+            this.knight.y = 625
+            this.knight.health = 3
+            this.knight.visible = true
+            this.knight.inputEnabled = true
+            this.knight.getChildAt(0).text = this.knight.attack + "/" + this.knight.health
+            this.shieldman.x = 450
+            this.shieldman.y = 625
+            this.shieldman.health = 2
+            this.shieldman.visible = true
+            this.shieldman.inputEnabled = true
+            this.shieldman.getChildAt(0).text = this.shieldman.attack + "/" + this.shieldman.health
+            this.pikeman.x = 550
+            this.pikeman.y = 625
+            this.pikeman.health = 1
+            this.pikeman.visible = true
+            this.pikeman.inputEnabled = true
+            this.pikeman.getChildAt(0).text = this.pikeman.attack + "/" + this.pikeman.health
+            
+            this.turn+=1
+            this.turnNumber.text = this.turn
+            this.currentPlayerNumber = msg.currentPlayer
+
+            if (this.currentPlayerNumber == this.playerNumber) {
+                this.yourTurn()
+                this.game.currentPlayer = this.players[this.playerNumber]
+                this.canDeploy = true
+            }
+            else {
+                this.game.currentPlayer = "Cantseleectanything"
+            }
+            this.leftLaneQueue = []
+            this.centralLaneQueue = []
+            this.rightLaneQueue = []
+            this.enemyLeftLaneQueue = []
+            this.enemyCentralLaneQueue = []
+            this.enemyRightLaneQueue = []
+
+            this.combatResolved = false
+            this.processedUnits = 0
+            this.processedEnemyUnits = 0
+
+
+            this.smokes = 2
+            this.selectionLabel.text = "Do you want to deploy this unit\nunder a smoke screen?\n(" + this.smokes + " smoke screens left)"
+            this.laneToBeDeployed = -1 
+            this.currentLane = 0
+
+
+        }
         else if (undefined != msg.status && msg.status == "waitingForGame") {
             this.waitingForGameLabel.text = "Waiting for game ... you are the first in the queue"
             //this.sfx_swords.play()
@@ -508,99 +1014,117 @@ class Main extends Phaser.State {
         }
         else if (undefined != msg.status && msg.status == "deployed") {
 
+            let timer = 0
+            if (false && this.gameType == "ai_easy" && this.turn < 9) { // game == vs ai 
+                timer = this.game.rnd.integerInRange(1,3)
+            }
             if (msg.playerNumber != this.playerNumber) {
                 if (msg.unitDeployed == "smoke") {
-                    this.addEnemy(msg.laneDeployed, this.createUnit('enemyCloud', '?/?', -265, 150, true))
+                    this.laneToBeDeployed = msg.laneDeployed
+                    this.game.time.events.add(Phaser.Timer.SECOND * timer, this.addSmoke, this)
                 }
                 else if (msg.unitDeployed == "peasant") {
-                    this.addEnemy(msg.laneDeployed, this.createUnit('enemyPeasant', '1/1', -265, 150, true))
+                    this.laneToBeDeployed = msg.laneDeployed
+                    this.game.time.events.add(Phaser.Timer.SECOND * timer, this.addPeasant, this)
                 }
                 else if (msg.unitDeployed == "swordsman") {
-                    this.addEnemy(msg.laneDeployed, this.createUnit('enemySwordsman', '2/2', -265, 150, true))
+                    this.laneToBeDeployed = msg.laneDeployed
+                    this.game.time.events.add(Phaser.Timer.SECOND * timer, this.addSwordsman, this)
                 }
                 else if (msg.unitDeployed == "knight") {
-                    this.addEnemy(msg.laneDeployed, this.createUnit('enemyKnight', '3/3', -265, 150, true))
+                    this.laneToBeDeployed = msg.laneDeployed
+                    this.game.time.events.add(Phaser.Timer.SECOND * timer, this.addKnight, this)
                 }
                 else if (msg.unitDeployed == "shieldman") {
-                    this.addEnemy(msg.laneDeployed, this.createUnit('enemyShieldman', '1/2', -265, 150, true))
+                    this.laneToBeDeployed = msg.laneDeployed
+                    this.game.time.events.add(Phaser.Timer.SECOND * timer, this.addShieldman, this)
                 }
                 else if (msg.unitDeployed == "pikeman") {
-                    this.addEnemy(msg.laneDeployed, this.createUnit('enemyPikeman', '3/1', -265, 150, true))
+                    this.laneToBeDeployed = msg.laneDeployed
+                    this.game.time.events.add(Phaser.Timer.SECOND * timer, this.addPikeman, this)
                 }
             }
         }
         else if (undefined != msg.status && msg.status == "updateUnits") {
-
+            this.switchRedRects(!this.rectsOn)
             let enemy = 0
             if (this.playerNumber == 0) {
                 enemy = 1
             }
+
             for(let i=0; i<this.enemyLeftLaneQueue.length; i++) {
+                console.log(this.enemyLeftLaneQueue.length + " // " + msg.units[enemy][0].toString())
                 let enemyKey = "enemyPeasant"
-                let stat = "1/1"
-                if (msg.units[enemy][0][i] == "shieldman") {
+                let attack = msg.units[enemy][0][i]["attack"]
+                let health = msg.units[enemy][0][i]["health"]
+                let unit = msg.units[enemy][0][i]["unit"]
+                if (unit == "shieldman") {
                     enemyKey = "enemyShieldman"
-                    stat = "1/2"
                 }
-                else if (msg.units[enemy][0][i] == "pikeman") {
+                else if (unit == "pikeman") {
                     enemyKey = "enemyPikeman"
-                    stat = "3/1"
                 }
-                else if (msg.units[enemy][0][i] == "swordsman") {
+                else if (unit == "swordsman") {
                     enemyKey = "enemySwordsman"
-                    stat = "2/2"
                 }
-                else if (msg.units[enemy][0][i] == "knight") {
+                else if (unit == "knight") {
                     enemyKey = "enemyKnight"
-                    stat = "3/3"
                 }
                 this.enemyLeftLaneQueue[i].loadTexture(enemyKey, 0)
-                this.enemyLeftLaneQueue[i].getChildAt(0).text = stat
+                this.enemyLeftLaneQueue[i].getChildAt(0).text = attack + "/" + health
+                this.enemyLeftLaneQueue[i].attack = attack
+                this.enemyLeftLaneQueue[i].health = health
+                this.enemyLeftLaneQueue[i].unit = unit
+                //"Attack: " + attack + "\nHealth: " + health
             }
             for(let i=0; i<this.enemyCentralLaneQueue.length; i++) {
                 let enemyKey = "enemyPeasant"
-                let stat = "1/1"
-                if (msg.units[enemy][1][i] == "shieldman") {
+                console.log(this.enemyCentralLaneQueue.length + " - " + msg.units[enemy][1].toString())
+                let attack = msg.units[enemy][1][i]["attack"]
+                let health = msg.units[enemy][1][i]["health"]
+                let unit = msg.units[enemy][1][i]["unit"]
+                if (unit == "shieldman") {
                     enemyKey = "enemyShieldman"
-                    stat = "1/2"
                 }
-                else if (msg.units[enemy][1][i] == "pikeman") {
+                else if (unit == "pikeman") {
                     enemyKey = "enemyPikeman"
-                    stat = "3/1"
                 }
-                else if (msg.units[enemy][1][i] == "swordsman") {
+                else if (unit == "swordsman") {
                     enemyKey = "enemySwordsman"
-                    stat = "2/2"
                 }
-                else if (msg.units[enemy][1][i] == "knight") {
+                else if (unit == "knight") {
                     enemyKey = "enemyKnight"
-                    stat = "3/3"
                 }
                 this.enemyCentralLaneQueue[i].loadTexture(enemyKey, 0)
-                this.enemyCentralLaneQueue[i].getChildAt(0).text = stat
+                this.enemyCentralLaneQueue[i].getChildAt(0).text = attack + "/" + health
+                this.enemyCentralLaneQueue[i].attack = attack
+                this.enemyCentralLaneQueue[i].health = health
+                this.enemyCentralLaneQueue[i].unit = unit
 
             }
             for(let i=0; i<this.enemyRightLaneQueue.length; i++) {
                 let enemyKey = "enemyPeasant"
-                let stat = "1/1"
-                if (msg.units[enemy][2][i] == "shieldman") {
+                console.log(this.enemyRightLaneQueue.length + "/" + msg.units[enemy][2].toString())
+                let attack = msg.units[enemy][2][i]["attack"]
+                let health = msg.units[enemy][2][i]["health"]
+                let unit = msg.units[enemy][2][i]["unit"]
+                if (unit == "shieldman") {
                     enemyKey = "enemyShieldman"
-                    stat = "1/2"
                 }
-                else if (msg.units[enemy][2][i] == "pikeman") {
+                else if (unit == "pikeman") {
                     enemyKey = "enemyPikeman"
-                    stat = "3/1"
                 }
-                else if (msg.units[enemy][2][i] == "swordsman") {
+                else if (unit == "swordsman") {
                     enemyKey = "enemySwordsman"
-                    stat = "2/2"
                 }
-                else if (msg.units[enemy][2][i] == "knight") {
+                else if (unit == "knight") {
                     enemyKey = "enemyKnight"
-                    stat = "3/3"
                 }
                 this.enemyRightLaneQueue[i].loadTexture(enemyKey, 0)
-                this.enemyRightLaneQueue[i].getChildAt(0).text = stat
+                this.enemyRightLaneQueue[i].getChildAt(0).text = attack + "/" + health
+                this.enemyRightLaneQueue[i].attack = attack
+                this.enemyRightLaneQueue[i].health = health
+                this.enemyRightLaneQueue[i].unit = unit
 
             }
             for(let i=0; i<this.leftLaneQueue.length; i++) {
@@ -620,6 +1144,30 @@ class Main extends Phaser.State {
             }
 
         }
+        else if (undefined != msg.status && msg.status == "combatResolved") {
+            if (this.playerNumber == 0) {
+                //this.yourHPField.text = msg.players[0]
+                //this.enemyHPField.text = msg.players[1]
+            }
+            else {
+                //this.yourHPField.text = msg.players[1]
+                //this.enemyHPField.text = msg.players[0]
+
+            }
+            this.combatResolved = true
+            this.processedUnits = 0
+            this.processedEnemyUnits = 0
+            console.log("combatResolved")
+            if (!this.addedSlashes) {
+                this.addSlashes()
+            }
+            this.displayState = 1//"waitForNextResolve"
+            this.nextStateChange = this.step + this.stepDelay
+
+
+            this.switchRedRects(false)
+
+        }
         else if (undefined != msg.status && msg.status == "gameOver") {
             if (msg.loser == 0) {
                 this.announceWin(1)
@@ -637,7 +1185,7 @@ class Main extends Phaser.State {
 
     displayError(err) {
         console.log('Web Socket error - probably the server died. Sorry! Error: ' + err)
-        this.game.add.text(100, 400, "Web Socket error - the server is unreachable or dead. Sorry!\nYour best bet is to reload - or wait a bit and then try again:/", { font: "20px Arial", fill: "#ff0044"})
+        this.game.add.text(100, 600, "Web Socket error - the server is unreachable or dead. Sorry!\nYour best bet is to reload - or wait a bit and then try again:/", { font: "20px Arial", fill: "#ff0044"})
     }
 
 	
